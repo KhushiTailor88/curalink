@@ -28,59 +28,72 @@ Answer (Strictly formatted):
 
   if (!apiKey || apiKey === '""' || apiKey.length < 5) {
     return {
-      conditionOverview: "API key is missing.",
-      researchInsights: "Mock research insight.",
-      clinicalTrialsSummary: "Mock clinical trials summary.",
+      conditionOverview: "HuggingFace API Key is missing or invalid.",
+      researchInsights: "Please set HUGGINGFACE_API_KEY in your .env file.",
+      clinicalTrialsSummary: "AI Summarization unavailable.",
       sources: contextPublications.map(p => p.url).filter(Boolean),
-      rawMarkdown: "### Condition Overview\\nAPI Key missing or invalid...\\n### Research\\nMocked.\\n"
+      rawMarkdown: "### AI Synthesis Error\nYour HuggingFace API key is missing. Please add it to your `.env` file to enable research summaries."
     };
   }
 
   try {
-    const url = 'http://127.0.0.1:11434/api/generate';
+    const url = 'https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta';
+    
     const response = await axios.post(
       url,
       {
-        model: "llama3", // Assuming user has standard defaults on Ollama
-        prompt: prompt,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 600
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 800,
+          temperature: 0.1,
+          return_full_text: false
         }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 20000 // 20s timeout for complex synthesis
       }
     );
 
-    const generatedText = response.data?.response;
+    let generatedText = '';
     
+    // HuggingFace returns an array or simple object depending on model/config
+    if (Array.isArray(response.data)) {
+      generatedText = response.data[0]?.generated_text || response.data[0]?.summary_text || '';
+    } else {
+      generatedText = response.data?.generated_text || '';
+    }
+    
+    if (!generatedText) {
+       throw new Error('Empty response from HuggingFace');
+    }
+
     return {
-      conditionOverview: "Parsed from Local Ollama successfully.",
-      researchInsights: "Generated via Ollama.",
-      clinicalTrialsSummary: "Generated via Ollama.",
+      conditionOverview: "Synthesized via HuggingFace AI Engine.",
+      researchInsights: "Generated from current clinical context.",
+      clinicalTrialsSummary: "Synthesized from identified trials.",
       sources: [...contextPublications.map(p => p.url), ...contextTrials.map(t => t.url)].filter(Boolean),
-      rawMarkdown: generatedText || "Model returned empty valid connection."
+      rawMarkdown: generatedText
     };
 
   } catch (error) {
     console.error('LLM generation error:', error?.response?.data || error?.message);
     
-    // Check specifically for connection refused which means Ollama isn't running
-    if (error.code === 'ECONNREFUSED') {
-       return {
-         conditionOverview: "Ollama Error",
-         researchInsights: "Error",
-         clinicalTrialsSummary: "Error",
-         sources: [],
-         rawMarkdown: `### Local LLM Connection Failed\\nCuralink could not connect to your local Ollama instance on port 11434. Please ensure Ollama is installed and running in the background.`
-       };
-    }
+    const fallbackMarkdown = `### AI Synthesis Fallback (API Latency/Error)\n*The research engine encountered an error while synthesizing a summary. Below is the raw extracted data from your clinical query:*
 
-    const fallbackMarkdown = `### AI Synthesis Fallback (API Unavailable)\\n*Ollama encountered a processing error. Curalink has automatically engaged the Local Synthesis Engine for your query:*\\n\\n### Key Research Insights\\n${pubText || '*No publication abstracts available to synthesize.*'}\\n\\n### Related Clinical Trials\\n${trialText || '*No clinical trials available to synthesize.*'}`;
+### Identified Research Context
+${pubText || '*No specific publication abstracts found to summarize.*'}
+
+### Clinical Trial Progressions
+${trialText || '*No clinical trials found to summarize.*'}`;
 
     return {
-      conditionOverview: "Synthesized via Local Fallback Engine.",
-      researchInsights: "Generated.",
-      clinicalTrialsSummary: "Generated.",
+      conditionOverview: "Local Data Synthesis (Fallback).",
+      researchInsights: "Raw data extraction.",
+      clinicalTrialsSummary: "Raw data extraction.",
       sources: [...contextPublications.map(p => p.url), ...contextTrials.map(t => t.url)].filter(Boolean),
       rawMarkdown: fallbackMarkdown
     };
